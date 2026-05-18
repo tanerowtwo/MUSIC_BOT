@@ -4,7 +4,7 @@ from telethon import TelegramClient, events
 from telethon.sessions import StringSession
 from aiohttp import web
 
-# === FIX event loop ===
+# === FIX EVENT LOOP ===
 loop = asyncio.new_event_loop()
 asyncio.set_event_loop(loop)
 
@@ -33,7 +33,7 @@ client = TelegramClient(
     loop=loop
 )
 
-# === ПРОВЕРКА СООБЩЕНИЯ НА НУЖНЫЕ ССЫЛКИ ===
+# === CHECK TARGET LINKS ===
 def contains_target_link(event):
     text = (event.message.message or "").lower()
 
@@ -91,13 +91,26 @@ async def handler(event):
         if not contains_target_link(event):
             return
 
-        # === FORWARD ORIGINAL MESSAGE ===
-        await client.forward_messages(
-            target_channel,
-            event.message
-        )
+        # === ORIGINAL TEXT ===
+        original_text = event.message.message or ""
 
-        print(f"✅ Переслано сообщение из {event.chat_id}")
+        # === MEDIA ===
+        media = event.message.media
+
+        # === SEND FULL MESSAGE ===
+        if media:
+            await client.send_file(
+                target_channel,
+                file=media,
+                caption=original_text
+            )
+        else:
+            await client.send_message(
+                target_channel,
+                original_text
+            )
+
+        print(f"✅ Полное сообщение отправлено из {event.chat_id}")
 
     except Exception as e:
         print(f"⚠️ Ошибка: {e}")
@@ -106,6 +119,7 @@ async def handler(event):
 # === HTTP SERVER ===
 async def handle(request):
     return web.Response(text="OK")
+
 
 async def web_server():
     app = web.Application()
