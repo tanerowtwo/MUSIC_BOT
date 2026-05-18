@@ -12,7 +12,7 @@ asyncio.set_event_loop(loop)
 api_id = int(os.environ.get("API_ID", "0"))
 api_hash = os.environ.get("API_HASH", "")
 string_session = os.environ.get("STRING_SESSION", "")
-target_channel = os.environ.get("TARGET_CHANNEL")
+target_channel = os.environ.get("TARGET_CHANNEL", "")
 
 source_chats = [
     x.strip()
@@ -20,10 +20,12 @@ source_chats = [
     if x.strip()
 ]
 
+# === CHECK ===
 if not api_id or not api_hash or not string_session or not target_channel:
-    print("❌ Missing ENV")
+    print("❌ Missing ENV variables")
     exit(1)
 
+# === CLIENT ===
 client = TelegramClient(
     StringSession(string_session),
     api_id,
@@ -32,42 +34,39 @@ client = TelegramClient(
 )
 
 # === CHECK LINK ===
-def contains_link(event):
+def has_link(event):
     text = (event.message.message or "").lower()
 
-    if "music.yandex.ru" in text or "youtube.com" in text or "youtu.be" in text:
+    if "youtube.com" in text or "youtu.be" in text or "music.yandex.ru" in text:
         return True
 
     if event.message.entities:
         for e in event.message.entities:
             if hasattr(e, "url") and e.url:
                 url = e.url.lower()
-                if "music.yandex.ru" in url or "youtube.com" in url or "youtu.be" in url:
+                if "youtube.com" in url or "youtu.be" in url or "music.yandex.ru" in url:
                     return True
 
     return False
 
 
-# === HANDLER (ВАЖНО: НОРМАЛЬНЫЙ FILTER) ===
+# === HANDLER ===
 @client.on(events.NewMessage)
 async def handler(event):
     try:
-        chat = await event.get_chat()
-
-        username = getattr(chat, "username", None)
         chat_id = str(event.chat_id)
 
-        # ===== DEBUG (очень важно) =====
-        print("📩", chat_id, username)
+        # DEBUG (очень важно)
+        print("📩 MESSAGE FROM:", chat_id)
 
-        # ===== FILTER =====
-        if chat_id not in source_chats and (not username or username not in source_chats):
+        # FILTER
+        if chat_id not in source_chats:
             return
 
-        if not contains_link(event):
+        if not has_link(event):
             return
 
-        # ===== SEND FULL MESSAGE =====
+        # SEND FULL MESSAGE
         if event.message.media:
             await client.send_file(
                 target_channel,
@@ -80,7 +79,7 @@ async def handler(event):
                 event.message.message or ""
             )
 
-        print("✅ FORWARDED")
+        print("✅ SENT")
 
     except Exception as e:
         print("⚠️ ERROR:", e)
@@ -113,9 +112,9 @@ async def heartbeat():
     while True:
         try:
             me = await client.get_me()
-            print("💓 OK", me.username or me.id)
+            print("💓 OK:", me.username or me.id)
         except Exception as e:
-            print("💔", e)
+            print("💔 ERROR:", e)
 
         await asyncio.sleep(120)
 
