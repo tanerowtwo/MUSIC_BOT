@@ -1,23 +1,18 @@
 import os
 import asyncio
-from aiohttp import web
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
 
+# ================= LOOP =================
 loop = asyncio.new_event_loop()
 asyncio.set_event_loop(loop)
 
+# ================= ENV =================
 api_id = int(os.environ["API_ID"])
 api_hash = os.environ["API_HASH"]
 string_session = os.environ["STRING_SESSION"]
 
 TARGET = os.environ["TARGET_CHANNEL"]
-
-SOURCE = [
-    x.strip().lstrip("@")
-    for x in os.environ.get("SOURCE_CHATS", "").split(",")
-    if x.strip()
-]
 
 client = TelegramClient(
     StringSession(string_session),
@@ -26,67 +21,59 @@ client = TelegramClient(
     loop=loop
 )
 
-# ================= TELEGRAM =================
-@client.on(events.NewMessage)
-async def handler(event):
-    chat = await event.get_chat()
+# ================= LINK CHECK =================
+def has_target_link(text: str) -> bool:
+    if not text:
+        return False
 
-    username = getattr(chat, "username", None)
-    chat_id = str(event.chat_id)
+    text = text.lower()
 
-    if username:
-        username = username.lstrip("@")
-
-    if username not in SOURCE and chat_id not in SOURCE:
-        return
-
-    text = event.message.message or ""
-
-    if not (
+    return (
         "youtube.com" in text
         or "youtu.be" in text
         or "music.yandex.ru" in text
-    ):
-        return
-
-    if event.message.media:
-        await client.send_file(TARGET, event.message.media, caption=text)
-    else:
-        await client.send_message(TARGET, text)
-
-    print("✅ SENT")
+    )
 
 
-# ================= WEB SERVER =================
-async def handle(request):
-    return web.Response(text="OK")
+# ================= HANDLER =================
+@client.on(events.NewMessage)
+async def handler(event):
+    try:
+        chat = await event.get_chat()
+
+        print("📩 MESSAGE FROM:", event.chat_id)
+        print("TEXT:", event.message.message)
+
+        text = event.message.message or ""
+
+        # фильтр ссылок
+        if not has_target_link(text):
+            return
+
+        # отправка (с медиа или без)
+        if event.message.media:
+            await client.send_file(
+                TARGET,
+                event.message.media,
+                caption=text
+            )
+        else:
+            await client.send_message(
+                TARGET,
+                text
+            )
+
+        print("✅ SENT")
+
+    except Exception as e:
+        print("⚠️ ERROR:", e)
 
 
-async def start_web():
-    app = web.Application()
-    app.router.add_get("/", handle)
-
-    runner = web.AppRunner(app)
-    await runner.setup()
-
-    port = int(os.environ.get("PORT", 8080))
-
-    site = web.TCPSite(runner, "0.0.0.0", port)
-    await site.start()
-
-    print(f"🌐 PORT OPENED: {port}")
-
-
-# ================= MAIN =================
+# ================= START =================
 async def main():
-    # 1. СНАЧАЛА ОТКРЫВАЕМ ПОРТ (ВАЖНО ДЛЯ RENDER)
-    await start_web()
-
-    # 2. ПОТОМ TELEGRAM
     await client.start()
-    print("🚀 TELEGRAM STARTED")
+    print("🚀 BOT STARTED (LISTENING ALL CHATS)")
 
-    # 3. ДЕРЖИМ ПРОЦЕСС ЖИВЫМ
     await client.run_until_disconnected()
 
 
