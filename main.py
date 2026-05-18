@@ -1,5 +1,6 @@
 import os
 import asyncio
+from aiohttp import web
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
 
@@ -10,71 +11,73 @@ api_id = int(os.environ["API_ID"])
 api_hash = os.environ["API_HASH"]
 string_session = os.environ["STRING_SESSION"]
 
-client = TelegramClient(StringSession(string_session), api_id, api_hash, loop=loop)
+TARGET = os.environ["TARGET_CHANNEL"]
 
-# --- НОРМАЛИЗАЦИЯ ЧАТОВ ---
-SOURCE_CHATS = set(
+SOURCE = [
     x.strip().lstrip("@")
     for x in os.environ.get("SOURCE_CHATS", "").split(",")
     if x.strip()
-)
+]
 
-TARGET = os.environ["TARGET_CHANNEL"]
+client = TelegramClient(StringSession(string_session), api_id, api_hash, loop=loop)
 
-
-def is_target_link(text):
-    text = (text or "").lower()
-    return (
-        "youtube.com" in text
-        or "youtu.be" in text
-        or "music.yandex.ru" in text
-    )
-
-
+# --- TELEGRAM ---
 @client.on(events.NewMessage)
 async def handler(event):
-    try:
-        chat = await event.get_chat()
+    chat = await event.get_chat()
+    username = getattr(chat, "username", None)
+    chat_id = str(event.chat_id)
 
-        username = getattr(chat, "username", None)
-        chat_id = str(event.chat_id)
+    if username:
+        username = username.lstrip("@")
 
-        # --- DEBUG (ОБЯЗАТЕЛЬНО) ---
-        print("CHAT:", chat_id, username)
+    if username not in SOURCE and chat_id not in SOURCE:
+        return
 
-        # --- FILTER (БЕЗ ЛОМАНЫХ УСЛОВИЙ) ---
-        if username:
-            username = username.lstrip("@")
-            if username not in SOURCE_CHATS and chat_id not in SOURCE_CHATS:
-                return
-        else:
-            if chat_id not in SOURCE_CHATS:
-                return
+    text = event.message.message or ""
 
-        # --- CHECK LINK ---
-        text = event.message.message or ""
-        if not is_target_link(text):
-            return
+    if (
+        "youtube.com" not in text
+        and "youtu.be" not in text
+        and "music.yandex.ru" not in text
+    ):
+        return
 
-        # --- SEND ---
-        if event.message.media:
-            await client.send_file(
-                TARGET,
-                event.message.media,
-                caption=text
-            )
-        else:
-            await client.send_message(TARGET, text)
+    if event.message.media:
+        await client.send_file(TARGET, event.message.media, caption=text)
+    else:
+        await client.send_message(TARGET, text)
 
-        print("✅ SENT")
-
-    except Exception as e:
-        print("⚠️ ERROR:", e)
+    print("✅ SENT")
 
 
+# --- WEB SERVER (ВАЖНО ДЛЯ RENDER) ---
+async def handle(request):
+    return web.Response(text="OK")
+
+
+async def web():
+    app = web.Application()
+    app.router.add_get("/", handle)
+
+    runner = web.AppRunner(app)
+    await runner.setup()
+
+    port = int(os.environ.get("PORT", 8080))
+
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+
+    print("🌐 SERVER STARTED ON PORT", port)
+
+
+# --- MAIN ---
 async def main():
     await client.start()
-    print("🚀 BOT RUNNING")
+    print("🚀 TELEGRAM STARTED")
+
+    await web()
+
     await client.run_until_disconnected()
 
 
