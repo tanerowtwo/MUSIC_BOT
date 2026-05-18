@@ -19,12 +19,18 @@ SOURCE = [
     if x.strip()
 ]
 
-client = TelegramClient(StringSession(string_session), api_id, api_hash, loop=loop)
+client = TelegramClient(
+    StringSession(string_session),
+    api_id,
+    api_hash,
+    loop=loop
+)
 
-# --- TELEGRAM ---
+# ================= TELEGRAM =================
 @client.on(events.NewMessage)
 async def handler(event):
     chat = await event.get_chat()
+
     username = getattr(chat, "username", None)
     chat_id = str(event.chat_id)
 
@@ -36,10 +42,10 @@ async def handler(event):
 
     text = event.message.message or ""
 
-    if (
-        "youtube.com" not in text
-        and "youtu.be" not in text
-        and "music.yandex.ru" not in text
+    if not (
+        "youtube.com" in text
+        or "youtu.be" in text
+        or "music.yandex.ru" in text
     ):
         return
 
@@ -51,12 +57,12 @@ async def handler(event):
     print("✅ SENT")
 
 
-# --- WEB SERVER (ВАЖНО ДЛЯ RENDER) ---
+# ================= WEB SERVER =================
 async def handle(request):
     return web.Response(text="OK")
 
 
-async def web():
+async def start_web():
     app = web.Application()
     app.router.add_get("/", handle)
 
@@ -68,16 +74,19 @@ async def web():
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
 
-    print("🌐 SERVER STARTED ON PORT", port)
+    print(f"🌐 PORT OPENED: {port}")
 
 
-# --- MAIN ---
+# ================= MAIN =================
 async def main():
+    # 1. СНАЧАЛА ОТКРЫВАЕМ ПОРТ (ВАЖНО ДЛЯ RENDER)
+    await start_web()
+
+    # 2. ПОТОМ TELEGRAM
     await client.start()
     print("🚀 TELEGRAM STARTED")
 
-    await web()
-
+    # 3. ДЕРЖИМ ПРОЦЕСС ЖИВЫМ
     await client.run_until_disconnected()
 
 
