@@ -4,7 +4,7 @@ from telethon import TelegramClient, events
 from telethon.sessions import StringSession
 from aiohttp import web
 
-# === FIX EVENT LOOP ===
+# === LOOP ===
 loop = asyncio.new_event_loop()
 asyncio.set_event_loop(loop)
 
@@ -15,17 +15,15 @@ string_session = os.environ.get("STRING_SESSION", "")
 target_channel = os.environ.get("TARGET_CHANNEL")
 
 source_chats = [
-    chat.strip()
-    for chat in os.environ.get("SOURCE_CHATS", "").split(",")
-    if chat.strip()
+    x.strip()
+    for x in os.environ.get("SOURCE_CHATS", "").split(",")
+    if x.strip()
 ]
 
-# === CHECK ENV ===
 if not api_id or not api_hash or not string_session or not target_channel:
-    print("❌ Missing ENV variables")
+    print("❌ Missing ENV")
     exit(1)
 
-# === TELEGRAM CLIENT ===
 client = TelegramClient(
     StringSession(string_session),
     api_id,
@@ -33,97 +31,68 @@ client = TelegramClient(
     loop=loop
 )
 
-# === CHECK TARGET LINKS ===
-def contains_target_link(event):
+# === CHECK LINK ===
+def contains_link(event):
     text = (event.message.message or "").lower()
 
-    # обычные ссылки
-    if (
-        "music.yandex.ru" in text
-        or "youtube.com" in text
-        or "youtu.be" in text
-    ):
+    if "music.yandex.ru" in text or "youtube.com" in text or "youtu.be" in text:
         return True
 
-    # скрытые ссылки
     if event.message.entities:
-        for entity in event.message.entities:
-            if hasattr(entity, "url") and entity.url:
-                url = entity.url.lower()
-
-                if (
-                    "music.yandex.ru" in url
-                    or "youtube.com" in url
-                    or "youtu.be" in url
-                ):
+        for e in event.message.entities:
+            if hasattr(e, "url") and e.url:
+                url = e.url.lower()
+                if "music.yandex.ru" in url or "youtube.com" in url or "youtu.be" in url:
                     return True
 
     return False
 
 
-# === HANDLER ===
+# === HANDLER (ВАЖНО: НОРМАЛЬНЫЙ FILTER) ===
 @client.on(events.NewMessage)
 async def handler(event):
     try:
         chat = await event.get_chat()
 
         username = getattr(chat, "username", None)
+        chat_id = str(event.chat_id)
 
-        # === FILTER SOURCE CHATS ===
-        allowed = False
+        # ===== DEBUG (очень важно) =====
+        print("📩", chat_id, username)
 
-        # проверка по ID
-        if str(event.chat_id) in source_chats:
-            allowed = True
-
-        # проверка по username
-        if username:
-            if (
-                username in source_chats
-                or f"@{username}" in source_chats
-            ):
-                allowed = True
-
-        if not allowed:
+        # ===== FILTER =====
+        if chat_id not in source_chats and (not username or username not in source_chats):
             return
 
-        # === CHECK LINKS ===
-        if not contains_target_link(event):
+        if not contains_link(event):
             return
 
-        # === ORIGINAL TEXT ===
-        original_text = event.message.message or ""
-
-        # === MEDIA ===
-        media = event.message.media
-
-        # === SEND FULL MESSAGE ===
-        if media:
+        # ===== SEND FULL MESSAGE =====
+        if event.message.media:
             await client.send_file(
                 target_channel,
-                file=media,
-                caption=original_text
+                file=event.message.media,
+                caption=event.message.message or ""
             )
         else:
             await client.send_message(
                 target_channel,
-                original_text
+                event.message.message or ""
             )
 
-        print(f"✅ Полное сообщение отправлено из {event.chat_id}")
+        print("✅ FORWARDED")
 
     except Exception as e:
-        print(f"⚠️ Ошибка: {e}")
+        print("⚠️ ERROR:", e)
 
 
-# === HTTP SERVER ===
+# === WEB SERVER ===
 async def handle(request):
     return web.Response(text="OK")
 
 
 async def web_server():
     app = web.Application()
-
     app.router.add_get("/", handle)
 
     runner = web.AppRunner(app)
@@ -136,8 +105,7 @@ async def web_server():
     )
 
     await site.start()
-
-    print("🌐 Web server started")
+    print("🌐 WEB OK")
 
 
 # === HEARTBEAT ===
@@ -145,11 +113,9 @@ async def heartbeat():
     while True:
         try:
             me = await client.get_me()
-
-            print(f"💓 OK — {me.username or me.id}")
-
+            print("💓 OK", me.username or me.id)
         except Exception as e:
-            print(f"💔 Heartbeat error: {e}")
+            print("💔", e)
 
         await asyncio.sleep(120)
 
@@ -157,16 +123,13 @@ async def heartbeat():
 # === MAIN ===
 async def main():
     await client.start()
-
-    print("🎧 Бот запущен")
+    print("🚀 BOT STARTED")
 
     await web_server()
-
     asyncio.create_task(heartbeat())
 
     await client.run_until_disconnected()
 
 
-# === START ===
 if __name__ == "__main__":
     loop.run_until_complete(main())
